@@ -4,45 +4,91 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+char *builtin_str[] = {
+  "cd",
+  "path",
+  "exit"
+};
+
+int num_builtins() {
+  return sizeof(builtin_str) / sizeof(char *);
+}
+
+int cd_cmd(char **commands) {
+    int argc = 0;
+    while (commands[argc] != NULL) {
+        argc++;
+    }
+
+    if (argc != 2) {
+        fprintf(stderr, "Usage: cd <directory>\n");
+        return 1;
+    }
+
+    if (chdir(commands[1]) != 0) {
+        perror("cd");
+        return 1;
+    }
+
+    return 0;
+}
+
+int path_cmd(char **commands) {
+    return 1;
+}
+
+int exit_cmd(char **commands) {
+    exit(0);
+    return 1;
+}
+
+int (*builtin_func[]) (char **) = {
+  &cd_cmd,
+  &cd_cmd,
+  &exit_cmd
+};
+
 char **parse_command(char *command) {
-    char *exit_command = "exit";
-    const char *delim = " ";
     int cap = 10; // initial array size
     int filled = 0;
     char **arr = malloc(cap * sizeof(char *)); // hold pointers to all strings in the command
-            
-    if (strcmp(command, exit_command) == 0) {
-        exit(0);
-    } else { // handle command and free it
-        char *tok;
+    
+    // handle command and free it
+    char *tok;
 
-        if (arr == NULL) {
-            printf("%s", "malloc error :(");
-        }
-
-        while ((tok = strsep(&command, delim)) != NULL) {
-            if (*tok == '\0') continue;
-            
-            if (filled == cap) {
-                cap *= 2;
-                arr = realloc(arr, cap * sizeof(char *));
-
-                if (!arr) {
-                    printf("%s", "realloc error :(");
-                    exit(1);
-                }
-            }
-
-            arr[filled] = strdup(tok);
-            filled++;
-        }
-
-        arr[filled] = NULL;
-        return arr;
+    if (arr == NULL) {
+        printf("%s", "malloc error :(");
     }
+
+    while ((tok = strsep(&command, " ")) != NULL) {
+        if (*tok == '\0') continue; // skip empty tokens from multiple spaces
+            
+        if (filled == cap) {
+            cap *= 2;
+            arr = realloc(arr, cap * sizeof(char *));
+
+            if (!arr) {
+                printf("%s", "realloc error");
+                exit(1);
+            }
+        }
+
+        arr[filled] = strdup(tok);
+        filled++;
+    }
+    
+    arr[filled] = NULL; // null terminate the array
+    return arr;
 }
 
 int execute_commands(char **commands) {
+
+    for (int i = 0; i < num_builtins(); i++) {
+        if (strcmp(commands[0], builtin_str[i]) == 0) {
+            return builtin_func[i](commands);
+        }
+    }
+    
     // fork duplicates the current process and returns the process id
     // execv replaces the current process with a new one
     pid_t pid;
@@ -89,12 +135,14 @@ void interactive_mode() {
         }
 
         char **commands = parse_command(command);
-        if (execute_commands(commands) != 1) break;
+        if (execute_commands(commands) != 0) break;
+
+        for (int i = 0; commands[i] != NULL; i++) {
+            free(commands[i]);  // free each string
+        }
 
         free(command);
         free(commands);
-        
-        // execute command
     }
 }
 
