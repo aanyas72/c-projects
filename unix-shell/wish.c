@@ -4,6 +4,17 @@
 #include <sys/wait.h>
 #include <unistd.h>
 
+#define MAX_PATHS 100
+char *path_list[MAX_PATHS];
+int num_paths = 0;  
+
+void clear_paths() {
+    for (int i = 0; i < num_paths; i++) {
+        free(path_list[i]);  // free memory from strdup
+    }
+    num_paths = 0;
+}
+
 char *builtin_str[] = {
   "cd",
   "path",
@@ -22,7 +33,7 @@ int cd_cmd(char **commands) {
 
     if (argc != 2) {
         fprintf(stderr, "Usage: cd <directory>\n");
-        return 1;
+        return 0;
     }
 
     if (chdir(commands[1]) != 0) {
@@ -34,7 +45,18 @@ int cd_cmd(char **commands) {
 }
 
 int path_cmd(char **commands) {
-    return 1;
+    clear_paths();
+
+    for (int i = 1; commands[i] != NULL; i++) {
+        if (num_paths >= MAX_PATHS) {
+            fprintf(stderr, "Too many paths\n");
+            break;
+        }
+        path_list[num_paths] = strdup(commands[i]);
+        num_paths++;
+    }
+
+    return 0;
 }
 
 int exit_cmd(char **commands) {
@@ -44,7 +66,7 @@ int exit_cmd(char **commands) {
 
 int (*builtin_func[]) (char **) = {
   &cd_cmd,
-  &cd_cmd,
+  &path_cmd,
   &exit_cmd
 };
 
@@ -88,27 +110,37 @@ int execute_commands(char **commands) {
             return builtin_func[i](commands);
         }
     }
-    
-    // fork duplicates the current process and returns the process id
-    // execv replaces the current process with a new one
-    pid_t pid;
-    int status = 0;
 
-    pid = fork();
-    
-    if (pid < 0) {
-        // Error occurred
-        printf("%s", "fork failed");
-        exit(1);
-    } else if (pid == 0) {
-        // Child process
-        if (execvp(commands[0], commands) == -1) {
-            perror("lsh");
+    if (num_paths == 0) {
+        fprintf(stderr, "No path set. Cannot run external commands.\n");
+        return 0;
+    }
+
+    for (int i = 0; i < num_paths; i++) {
+        char full_path[512];
+        snprintf(full_path, sizeof(full_path), "%s/%s", path_list[i], commands[0]); // append command to the end of the path
+
+        if (access(full_path, X_OK) == 0) {
+            // fork duplicates the current process and returns the process id
+            // execv replaces the current process with a new one
+            pid_t pid = fork();
+            int status = 0;
+            
+            if (pid < 0) {
+                // Error occurred
+                printf("%s", "fork failed");
+                exit(1);
+            } else if (pid == 0) {
+                // Child process
+                if (execv(full_path, commands) == -1) {
+                    perror("lsh");
+                }
+                exit(1);
+            } else {
+                // Parent Process
+                waitpid(pid, &status, WUNTRACED);
+            }
         }
-        exit(1);
-    } else {
-        // Parent Process
-        waitpid(pid, &status, WUNTRACED);
     }
 
     return 0;
